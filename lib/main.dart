@@ -1,3 +1,4 @@
+//AK_v1.0.0
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
@@ -35,7 +36,6 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// PERMISSION SCREEN — FIXES FIRST LAUNCH
 class PermissionScreen extends StatefulWidget {
   const PermissionScreen({super.key});
   @override
@@ -85,7 +85,10 @@ class _PermissionScreenState extends State<PermissionScreen> {
           children: [
             const CircularProgressIndicator(),
             const SizedBox(height: 20),
-            const Text('Setting up Bluetooth...'),
+            const Text(
+              'Setting up Bluetooth...',
+              style: TextStyle(fontSize: 18),
+            ),
             const SizedBox(height: 20),
             ElevatedButton(
               onPressed: _requestPermissions,
@@ -182,7 +185,6 @@ class AppState with ChangeNotifier {
 }
 
 class HomePage extends StatefulWidget {
-  // FIXED: THESE 3 LINES WERE MISSING!
   static BluetoothConnection? connection;
   static Timer? heartbeat;
   static Timer? reconnectTimer;
@@ -216,7 +218,8 @@ class _HomePageState extends State<HomePage> {
     await _loadBonded();
     final app = Provider.of<AppState>(context, listen: false);
     if (app.selectedMac != null) {
-      _connect(app.selectedMac!);
+      await Future.delayed(const Duration(milliseconds: 800));
+      if (mounted) _connect(app.selectedMac!);
     }
   }
 
@@ -224,9 +227,7 @@ class _HomePageState extends State<HomePage> {
     try {
       final bonded = await bt.getBondedDevices();
       setState(() => devices = bonded.toList());
-    } catch (e) {
-      // Silent
-    }
+    } catch (e) {}
   }
 
   void _startHeartbeat() {
@@ -247,15 +248,26 @@ class _HomePageState extends State<HomePage> {
         address,
       ).timeout(const Duration(seconds: 10));
 
-      Provider.of<AppState>(context, listen: false).setDevice(address);
-      Provider.of<AppState>(context, listen: false).setConnected(true);
-      _startHeartbeat();
+      HomePage.reconnectTimer?.cancel();
+      HomePage.reconnectTimer = null;
 
+      final app = Provider.of<AppState>(context, listen: false);
+      app.setDevice(address);
+      app.setConnected(true);
+
+      _startHeartbeat();
       _connSub?.cancel();
       _connSub = HomePage.connection!.input!.listen(
         (_) {},
         onDone: _onDisconnect,
       );
+
+      if (mounted) {
+        setState(() {});
+        app.notifyListeners();
+        await Future.delayed(const Duration(milliseconds: 100));
+        if (mounted) setState(() {});
+      }
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -264,19 +276,28 @@ class _HomePageState extends State<HomePage> {
         ),
       );
     } catch (e) {
-      Provider.of<AppState>(context, listen: false).setConnected(false);
+      final app = Provider.of<AppState>(context, listen: false);
+      app.setConnected(false);
       _startAutoReconnect(address);
+      if (mounted) setState(() {});
     }
-    setState(() {});
   }
 
   void _onDisconnect() {
     HomePage.connection = null;
     HomePage.heartbeat?.cancel();
-    Provider.of<AppState>(context, listen: false).setConnected(false);
-    final mac = Provider.of<AppState>(context, listen: false).selectedMac;
+    HomePage.reconnectTimer?.cancel();
+    HomePage.reconnectTimer = null;
+
+    final app = Provider.of<AppState>(context, listen: false);
+    app.setConnected(false);
+    final mac = app.selectedMac;
     if (mac != null) _startAutoReconnect(mac);
-    setState(() {});
+
+    if (mounted) {
+      setState(() {});
+      app.notifyListeners();
+    }
   }
 
   void _startAutoReconnect(String address) {
@@ -288,6 +309,8 @@ class _HomePageState extends State<HomePage> {
         _connect(address);
       } else {
         timer.cancel();
+        HomePage.reconnectTimer = null;
+        if (mounted) setState(() {});
       }
     });
   }
@@ -302,18 +325,74 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final app = Provider.of<AppState>(context);
     return Scaffold(
       appBar: AppBar(
         title: const Text(
           'Akbot Car',
-          style: TextStyle(fontWeight: FontWeight.bold),
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
         ),
+        centerTitle: true,
+        elevation: 8,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () => _showSettings(app),
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Center(
+              child: Consumer<AppState>(
+                builder: (context, app, _) {
+                  final isConnecting =
+                      HomePage.reconnectTimer?.isActive ?? false;
+                  final isLive = app.isConnected && !isConnecting;
+                  return Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 400),
+                        width: 11,
+                        height: 11,
+                        decoration: BoxDecoration(
+                          color: isLive
+                              ? Colors.green
+                              : (isConnecting ? Colors.orange : Colors.red),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color:
+                                  (isLive
+                                          ? Colors.green
+                                          : (isConnecting
+                                                ? Colors.orange
+                                                : Colors.red))
+                                      .withOpacity(0.7),
+                              blurRadius: isLive ? 10 : 5,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 7),
+                      Text(
+                        isLive
+                            ? "LIVE"
+                            : (isConnecting ? "CONNECTING" : "OFFLINE"),
+                        style: TextStyle(
+                          color: isLive
+                              ? Colors.green
+                              : (isConnecting ? Colors.orange : Colors.red),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
           ),
+          IconButton(
+            icon: const Icon(Icons.settings, size: 26),
+            onPressed: () =>
+                _showSettings(Provider.of<AppState>(context, listen: false)),
+          ),
+          const SizedBox(width: 8),
         ],
       ),
       body: SafeArea(
@@ -321,63 +400,67 @@ class _HomePageState extends State<HomePage> {
           children: [
             SizedBox(
               width: MediaQuery.of(context).size.width * 0.33,
-              child: GridView.count(
-                crossAxisCount: 2,
-                padding: const EdgeInsets.all(14),
-                mainAxisSpacing: 14,
-                crossAxisSpacing: 14,
-                childAspectRatio: 1.3,
-                children: ['1', '2', '3', '4']
-                    .map(
-                      (k) => CtrlBtn(
-                        label: k,
-                        press: app.press[k]!,
-                        release: app.release[k]!,
-                        onSend: _send,
-                      ),
-                    )
-                    .toList(),
+              child: Consumer<AppState>(
+                builder: (context, app, _) => GridView.count(
+                  crossAxisCount: 2,
+                  padding: const EdgeInsets.all(14),
+                  mainAxisSpacing: 14,
+                  crossAxisSpacing: 14,
+                  childAspectRatio: 1.3,
+                  children: ['1', '2', '3', '4']
+                      .map(
+                        (k) => CtrlBtn(
+                          label: k,
+                          press: app.press[k]!,
+                          release: app.release[k]!,
+                          onSend: _send,
+                        ),
+                      )
+                      .toList(),
+                ),
               ),
             ),
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.only(left: 38),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    BigArrow(
-                      icon: Icons.arrow_upward,
-                      press: app.press['f']!,
-                      release: app.release['f']!,
-                      onSend: _send,
-                    ),
-                    const SizedBox(height: 18),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        BigArrow(
-                          icon: Icons.arrow_back,
-                          press: app.press['l']!,
-                          release: app.release['l']!,
-                          onSend: _send,
-                        ),
-                        const SizedBox(width: 50),
-                        BigArrow(
-                          icon: Icons.arrow_forward,
-                          press: app.press['r']!,
-                          release: app.press['r']!,
-                          onSend: _send,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 18),
-                    BigArrow(
-                      icon: Icons.arrow_downward,
-                      press: app.press['b']!,
-                      release: app.release['b']!,
-                      onSend: _send,
-                    ),
-                  ],
+                child: Consumer<AppState>(
+                  builder: (context, app, _) => Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      BigArrow(
+                        icon: Icons.arrow_upward,
+                        press: app.press['f']!,
+                        release: app.release['f']!,
+                        onSend: _send,
+                      ),
+                      const SizedBox(height: 18),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          BigArrow(
+                            icon: Icons.arrow_back,
+                            press: app.press['l']!,
+                            release: app.release['l']!,
+                            onSend: _send,
+                          ),
+                          const SizedBox(width: 50),
+                          BigArrow(
+                            icon: Icons.arrow_forward,
+                            press: app.press['r']!,
+                            release: app.release['r']!,
+                            onSend: _send,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
+                      BigArrow(
+                        icon: Icons.arrow_downward,
+                        press: app.press['b']!,
+                        release: app.release['b']!,
+                        onSend: _send,
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -397,14 +480,50 @@ class _HomePageState extends State<HomePage> {
           controller: controller,
           padding: const EdgeInsets.all(20),
           children: [
-            const Text(
-              'SELECT YOUR CAR',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: Colors.blue,
-              ),
+            Row(
+              children: [
+                const Text(
+                  'SELECT YOUR CAR',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue,
+                  ),
+                ),
+                const Spacer(),
+                if (app.isConnected)
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      HomePage.connection?.close();
+                      HomePage.connection = null;
+                      HomePage.heartbeat?.cancel();
+                      HomePage.reconnectTimer?.cancel();
+                      app.setConnected(false);
+                      app.disconnect();
+                      if (mounted) setState(() {});
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('DISCONNECTED!'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    },
+                    icon: const Icon(
+                      Icons.bluetooth_disabled,
+                      color: Colors.white,
+                    ),
+                    label: const Text(
+                      'DISCONNECT',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                    ),
+                  ),
+              ],
             ),
+            const SizedBox(height: 10),
             ElevatedButton.icon(
               icon: const Icon(Icons.refresh),
               label: const Text('Refresh Devices'),
@@ -495,30 +614,27 @@ class CtrlBtn extends StatelessWidget {
     required this.release,
     required this.onSend,
   });
-
   @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => onSend(press),
-      onTapUp: (_) => onSend(release),
-      onTapCancel: () => onSend(release),
-      child: Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: Colors.blueAccent,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Text(
-          label,
-          style: const TextStyle(
-            fontSize: 16,
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-          ),
+  Widget build(BuildContext context) => GestureDetector(
+    onTapDown: (_) => onSend(press),
+    onTapUp: (_) => onSend(release),
+    onTapCancel: () => onSend(release),
+    child: Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.blueAccent,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 16,
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
         ),
       ),
-    );
-  }
+    ),
+  );
 }
 
 class BigArrow extends StatelessWidget {
@@ -532,22 +648,19 @@ class BigArrow extends StatelessWidget {
     required this.release,
     required this.onSend,
   });
-
   @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => onSend(press),
-      onTapUp: (_) => onSend(release),
-      onTapCancel: () => onSend(release),
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.blue[700],
-          shape: BoxShape.circle,
-          boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8)],
-        ),
-        child: Icon(icon, size: 36, color: Colors.white),
+  Widget build(BuildContext context) => GestureDetector(
+    onTapDown: (_) => onSend(press),
+    onTapUp: (_) => onSend(release),
+    onTapCancel: () => onSend(release),
+    child: Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.blue[700],
+        shape: BoxShape.circle,
+        boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8)],
       ),
-    );
-  }
+      child: Icon(icon, size: 36, color: Colors.white),
+    ),
+  );
 }

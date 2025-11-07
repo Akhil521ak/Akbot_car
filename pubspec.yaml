@@ -1,8 +1,6 @@
 name: akbot_car
-description: "Bluetooth RC Car Controller – Arrows + 4 Buttons + Never Drops"
+description: "Bluetooth RC Car Controller – LIVE Status, Auto-Reconnect, Custom Controls"
 publish_to: 'none'
-
-# Play Store version
 version: 1.0.0+1
 
 environment:
@@ -11,20 +9,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
-  # ICONS
   cupertino_icons: ^1.0.8
-
-  # BLUETOOTH
   flutter_bluetooth_serial: ^0.4.0
-
-  # STATE MANAGEMENT
   provider: ^6.1.5+1
-
-  # SAVE SETTINGS
   shared_preferences: ^2.5.3
-
-  # PERMISSIONS (FIXES FIRST-LAUNCH CRASH!)
   permission_handler: ^11.3.1
 
 dev_dependencies:
@@ -34,7 +22,4 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-
-  # OPTIONAL: Add your car icon here later
-  # assets:
-  #   - assets/images/
+  # NO ASSETS NEEDED INSIDE APP
